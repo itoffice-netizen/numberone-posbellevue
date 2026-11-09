@@ -1,0 +1,20 @@
+plugins { id 'com.android.application' }
+
+/* ตั้งค่าตอนสร้าง APK แต่ละร้าน (ผ่านตัวแปร env ของ GitHub Actions หรือ -P ตอนรันเอง) */
+def clean = { String s, String d -> def v = (s ?: '').trim().replaceAll(/['"&<>@\\%?]/, ''); return v ? v : d }
+def appName = clean(System.getenv('APP_NAME') ?: (project.findProperty('appName') as String), 'POS ร้านอาหาร')
+def shopUrl = clean(System.getenv('SHOP_URL') ?: (project.findProperty('shopUrl') as String), '')
+def appId   = (System.getenv('APP_ID') ?: (project.findProperty('appId') as String) ?: 'com.kruapodee.pos').trim().toLowerCase()
+if (!(appId ==~ /[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+/)) appId = 'com.kruapodee.pos'
+
+android {
+    namespace 'com.kruapodee.pos'
+    compileSdk 34
+    defaultConfig {
+        applicationId appId; minSdk 21; targetSdk 34; versionCode 7; versionName '1.6'
+        resValue 'string', 'app_name', appName
+        resValue 'string', 'default_url', shopUrl
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+    buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
+}
