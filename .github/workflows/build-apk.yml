@@ -1,0 +1,77 @@
+name: build-apk
+# ===== แก้ 3 บรรทัดนี้ให้เป็นของร้านคุณ (ใช้ทุกครั้งที่สร้างแอป ทั้งตอนกด Run workflow และตอนอัปโหลดไฟล์) =====
+env:
+  MY_APP_NAME: 'Numberone Pos'
+  MY_SHOP_URL: 'https://numberone-pos.it-office-02f.workers.dev/phuket001/'
+  MY_APP_ID: 'com.kruapodee.pos'
+# =====================================================================================================
+on:
+  push: { branches: [main, master] }
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'ชื่อแอปที่แสดงบนหน้าจอเครื่อง เช่น ร้านข้าวมันไก่ สาขา 1'
+        required: false
+        default: ''
+      shop_url:
+        description: 'ที่อยู่ร้าน เช่น https://โดเมน/ชื่อร้าน/ (ใส่แล้วแอปเปิดเข้าร้านเลย)'
+        required: false
+        default: ''
+      app_id:
+        description: 'รหัสแอป (ไม่บังคับ) ใส่ไม่ซ้ำกันถ้าจะติดตั้งหลายร้านในเครื่องเดียว เช่น com.myshop.pos1'
+        required: false
+        default: ''
+      logo_url:
+        description: 'ลิงก์รูปโลโก้ .png/.jpg (ไม่บังคับ) หรือจะอัปโหลดไฟล์ชื่อ logo.png ไว้ที่ repo ก็ได้'
+        required: false
+        default: ''
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ตั้งค่าชื่อแอป/ลิงก์ร้าน/รหัสแอป
+        env:
+          IN_NAME: ${{ inputs.app_name }}
+          IN_URL: ${{ inputs.shop_url }}
+          IN_ID: ${{ inputs.app_id }}
+          IN_LOGO: ${{ inputs.logo_url }}
+        run: |
+          echo "APP_NAME=${IN_NAME:-$MY_APP_NAME}" >> "$GITHUB_ENV"
+          echo "SHOP_URL=${IN_URL:-$MY_SHOP_URL}" >> "$GITHUB_ENV"
+          echo "APP_ID=${IN_ID:-$MY_APP_ID}" >> "$GITHUB_ENV"
+          echo "LOGO_URL=$IN_LOGO" >> "$GITHUB_ENV"
+      - name: หาโฟลเดอร์โปรเจกต์
+        id: loc
+        run: |
+          g=$(find . -name gradlew -not -path './.git/*' | head -n1)
+          if [ -z "$g" ]; then echo "ไม่พบไฟล์ gradlew ใน repo นี้ — ต้องอัปโหลดไฟล์ gradlew, gradle/, app/, settings.gradle, build.gradle ให้ครบ"; ls -R | head -50; exit 1; fi
+          echo "dir=$(dirname "$g")" >> "$GITHUB_OUTPUT"
+      - name: ใส่โลโก้ร้านเป็นไอคอนแอป (ถ้ามี)
+        working-directory: ${{ steps.loc.outputs.dir }}
+        run: |
+          src=""
+          if [ -n "$LOGO_URL" ]; then curl -fsSL "$LOGO_URL" -o /tmp/logo_dl && src=/tmp/logo_dl || echo "ดาวน์โหลดโลโก้ไม่ได้ ใช้ไอคอนเดิม"; fi
+          if [ -z "$src" ]; then for f in logo.png logo.jpg logo.jpeg ../logo.png ../logo.jpg; do [ -f "$f" ] && src="$f" && break; done; fi
+          if [ -z "$src" ]; then echo "ไม่มีโลโก้ — ใช้ไอคอนมาตรฐาน"; exit 0; fi
+          echo "ใช้โลโก้: $src"
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            n=${d%%:*}; px=${d##*:}; mkdir -p app/src/main/res/mipmap-$n
+            convert "$src[0]" -background none -gravity center -resize ${px}x${px} -extent ${px}x${px} app/src/main/res/mipmap-$n/ic_launcher.png
+          done
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: สร้าง APK
+        working-directory: ${{ steps.loc.outputs.dir }}
+        run: |
+          chmod +x gradlew
+          # ดาวน์โหลด Gradle จาก GitHub บางครั้งล่ม (HTTP 504) — ลองใหม่อัตโนมัติสูงสุด 4 ครั้ง
+          for i in 1 2 3 4; do
+            ./gradlew --no-daemon assembleDebug && exit 0
+            echo "รอบที่ $i ไม่สำเร็จ — รอ 30 วินาทีแล้วลองใหม่"; sleep 30
+          done
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KruaPodeePOS-apk
+          path: ${{ steps.loc.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk
